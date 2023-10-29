@@ -51,3 +51,15 @@ Same goes for configuration and commit operations
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
         self.connection.exec_command(cmd=cmd, output_object_type=dict, timeout=3000)
         self.connection.commit_cfg()
+
+
+
+
+In the end the instanciation should be like this 
+
+if __name__ == '__main__':
+    Marker = BaseConnector('WJ31B77Y00003A2')
+    Marker.get_QoS_policies()
+    Marker.configure_qos_traffic_classes
+    
+
