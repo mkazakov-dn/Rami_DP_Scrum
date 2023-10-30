@@ -3,11 +3,14 @@ import sys
 import time
 import threading
 from collections import OrderedDict
-from .Class_SSH_Con import SSH_Conn
+from Class_SSH_Con import SSH_Conn
 import re
 
 INTERFACE_REGEX = r'\bge\d+-\d+/\d+/\d+\b'
-
+TOP_MEM_EXEC = "top -n 1 -b | grep 'MiB Me'"
+TOP_CPU_EXEC = 'top -n 1 -b | grep "%Cpu(s)"'
+MEMORY_RE_PARSER = r"MiB Mem\s+:\s+(\d+\.\d+)\s+total,\s+(\d+\.\d+)\s+free"
+CPU_RE_PARSER = r"%Cpu\(s\): (\d+\.\d+) us"
 
 class BaseConnector():
 
@@ -104,7 +107,38 @@ class Commit_with_htop(BaseConnector):
         self.host_connection.connect()
         self.host_connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.HOST)
         self.stop_monitoring = threading.Event()
+    def parse_memory_stat(self, memory_stat):
+        # regex pattern to extract total and free memory
+        match = re.search(MEMORY_RE_PARSER, memory_stat)
 
+        # If a match is found, format the string accordingly
+        if match:
+            total_memory, free_memory = match.groups()
+            return f"MiB Mem: {free_memory} free out of {total_memory} total"
+        else:
+            return memory_stat  # return original string if no match is found
+
+    def parse_cpu_stat(self,cpu_stat):
+        # regex pattern to extract the 'us' value
+        match = re.search(CPU_RE_PARSER, cpu_stat)
+
+        # If a match is found, format the string accordingly
+        if match:
+            us_value = match.group(1)
+            return f"%Cpu(s): {us_value} us"
+        else:
+            return cpu_stat  # return original string if no match is found
+
+    def exec_top_mode_mem(self):
+        cmd = [TOP_MEM_EXEC, TOP_CPU_EXEC]
+        MKaz = self.host_connection.exec_command(cmd=cmd, output_object_type=dict, timeout=3000)
+
+        memory_stat = self.parse_memory_stat(MKaz.get(TOP_MEM_EXEC, [""])[0].strip())
+        cpu_stat = self.parse_cpu_stat(MKaz.get(TOP_CPU_EXEC, [""])[0].strip())
+        current_time = datetime.datetime.now().strftime('%H:%M:%S')
+
+        with open('top_results.txt', 'a') as f:
+            f.write(f' At {current_time} memory util was {memory_stat}, The cpu is {cpu_stat}\n')
     def load_and_commit_config(self, filename):
         self.host_connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.HOST)
         # Start monitoring during both operations
@@ -117,6 +151,8 @@ class Commit_with_htop(BaseConnector):
             f.write('\n----- Switching to commit operation -----\n')
 
         self.connection.commit_cfg(timeout=3600, commit_check=False)
+        with open('top_results.txt', 'a') as f:
+            f.write('\n----- Finished commit operation -----\n')
         self.connection.disconnect()
         self.host_connection.disconnect()
         self.end_monitoring()
@@ -130,16 +166,9 @@ class Commit_with_htop(BaseConnector):
         self.stop_monitoring.set()
         self.monitor_thread.join()
 
-    def exec_top_mode_mem(self):
-        cmd = ["top -n 1 -b | grep 'MiB Me'", 'top -n 1 -b | grep "%Cpu(s)"']
-        MKaz = self.host_connection.exec_command(cmd=cmd, output_object_type=dict, timeout=3000)
 
-        memory_stat = MKaz.get("top -n 1 -b | grep 'MiB Me'", [""])[0].strip()
-        cpu_stat = MKaz.get('top -n 1 -b | grep "%Cpu(s)"', [""])[0].strip()
-        current_time = datetime.datetime.now().strftime('%H:%M:%S')
 
-        with open('top_results.txt', 'a') as f:
-            f.write(f' At {current_time} memory util was {memory_stat}, The cpu is {cpu_stat}\n')
+
 
     def monitor_top_mode_mem(self):
         while not self.stop_monitoring.is_set():

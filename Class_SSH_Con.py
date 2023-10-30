@@ -705,7 +705,6 @@ class SSH_Conn:
                     tmp_prompt = 'Commit succeeded'
                     try:
                         __output = self._net_connect.send_command("commit log " + commit_name,
-                                                                  expect_string=tmp_prompt,
                                                                   cmd_verify=False,
                                                                   read_timeout=timeout)
                     except:
@@ -713,6 +712,7 @@ class SSH_Conn:
                 else:
                     # we can't commit so return False as commit not performed
                     commit_done = False
+
 
             # we are done, return output
             return commit_done
