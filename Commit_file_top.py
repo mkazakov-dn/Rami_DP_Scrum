@@ -12,6 +12,7 @@ TOP_CPU_EXEC = 'top -n 1 -b | grep "%Cpu(s)"'
 MEMORY_RE_PARSER = r"MiB Mem\s+:\s+(\d+\.\d+)\s+total,\s+(\d+\.\d+)\s+free"
 CPU_RE_PARSER = r"%Cpu\(s\): (\d+\.\d+) us"
 
+
 class BaseConnector():
 
     def __init__(self, ip, username, interface=None):
@@ -58,7 +59,7 @@ class BaseConnector():
         if filename is None:
             filename = 'Automator'
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
-        if not self.connection.exec_command(cmd=f'load merge {filename}',timeout=3600):
+        if not self.connection.exec_command(cmd=f'load merge {filename}', timeout=3600):
             print(f'Failed to load config')
         else:
             print(f'Load overriding original config prior to changes.')
@@ -71,8 +72,6 @@ class LLDP_Enable(BaseConnector):
 
     def __init__(self, ip, username, interface=None):
         super().__init__(ip, username, interface)
-
-
 
     def configure_lldp(self):
         # What interfaces exist
@@ -107,6 +106,7 @@ class Commit_with_htop(BaseConnector):
         self.host_connection.connect()
         self.host_connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.HOST)
         self.stop_monitoring = threading.Event()
+
     def parse_memory_stat(self, memory_stat):
         # regex pattern to extract total and free memory
         match = re.search(MEMORY_RE_PARSER, memory_stat)
@@ -118,7 +118,7 @@ class Commit_with_htop(BaseConnector):
         else:
             return memory_stat  # return original string if no match is found
 
-    def parse_cpu_stat(self,cpu_stat):
+    def parse_cpu_stat(self, cpu_stat):
         # regex pattern to extract the 'us' value
         match = re.search(CPU_RE_PARSER, cpu_stat)
 
@@ -139,12 +139,16 @@ class Commit_with_htop(BaseConnector):
 
         with open('top_results.txt', 'a') as f:
             f.write(f' At {current_time} memory util was {memory_stat}, The cpu is {cpu_stat}\n')
+
     def load_and_commit_config(self, filename):
         self.host_connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.HOST)
         # Start monitoring during both operations
         self.begin_monitoring()
-
-        self.connection.exec_command(cmd=f'load override {filename}', timeout=3600)
+        try:
+            self.connection.exec_command(cmd=f'load override {filename}', timeout=3600)
+        except:
+            print(f'Loading failed for file {filename}, Check if file exists please. Exiting program')
+            sys.exit(0)
 
         # Log separation message
         with open('top_results.txt', 'a') as f:
@@ -166,10 +170,6 @@ class Commit_with_htop(BaseConnector):
         self.stop_monitoring.set()
         self.monitor_thread.join()
 
-
-
-
-
     def monitor_top_mode_mem(self):
         while not self.stop_monitoring.is_set():
             self.exec_top_mode_mem()
@@ -182,4 +182,4 @@ if __name__ == '__main__':
     Marker = Commit_with_htop('WJ31B77Y00003A2', 'dnroot')
     Config_file = 'Automator'
     Marker.load_and_commit_config(Config_file)
-    #HTOP_ACess_host()
+    # HTOP_ACess_host()
