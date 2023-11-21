@@ -13,7 +13,12 @@ from netmiko.exceptions import NetmikoAuthenticationException
 from netmiko.exceptions import NetmikoTimeoutException
 from netmiko.exceptions import NetmikoBaseException
 from netmiko.exceptions import ReadException, ReadTimeout, WriteException
+import sys
+import paramiko
+from scp import SCPClient
+from collections import OrderedDict
 
+INTERFACE_REGEX = r'\bge\d+-\d+/\d+/\d+\b'
 
 class SSH_Conn:
     # Internal decorators for exception handling - future dev
@@ -2203,6 +2208,82 @@ class SSH_Conn:
         return contains_show
     # endregion
 
+class BaseConnector:
+
+    def __init__(self, ip, username, interface=None):
+        self.ip = ip
+        self.username = username
+        self.interface = '' if interface is None else interface
+
+        try:
+            self.connection: SSH_Conn = SSH_Conn(host=self.ip, authentication=None, localized_exec=True,
+                                                 session_log='test_con.log',
+                                                 icmp_test=True)
+            self.connection.connect()
+
+        except Exception as e:
+            print(f'Error: {e}')
+            self.connection: SSH_Conn = None
+
+    def get_interfaces(self, *args):
+        if self.connection is None:
+            print('Error: Connection failed')
+            return
+        self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_SHOW)
+        output = self.connection.exec_command(cmd=f'show interfaces {args}' if args else 'show interfaces', timeout=100)
+        interfaces = re.findall(INTERFACE_REGEX, output)
+        # Convert to a set and back to a list to remove duplicates
+        interfaces = list(OrderedDict.fromkeys(interfaces))
+        return interfaces
+
+    def backup_config(self):
+        if self.connection is None:
+            print('Error: Connection failed')
+            return
+        self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
+        self.connection.exec_command('save Automated_Snapshot')
+
+    def load_override_factory_default(self):
+        if self.connection is None:
+            print('Error: Connection failed')
+            return
+        self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
+        self.connection.exec_command('load override factory default')
+
+    def load_merge_config(self, filename):
+        if filename is None:
+            filename = 'Automator'
+        self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
+        if not self.connection.exec_command(cmd=f'load merge {filename}', timeout=3600):
+            print(f'Failed to load config')
+        else:
+            print(f'Load overriding original config prior to changes.')
+            if not self.connection.commit_cfg():
+                print(f'Commit FAILED please reffer to test_con_log')
+                sys.exit(1)
+
+    def SCP_To_Device(self, filename, path='/config'):
+        try:
+            # Create an SSH client instance.
+            ssh = paramiko.SSHClient()
+
+            # Automatically add the remote host (prevents MissingHostKeyPolicy error)
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+            # Connect to the remote host
+            ssh.connect(self.ip, username=self.username, password='dnroot')
+
+            # SCPCLient takes a paramiko transport as its only argument
+            scp = SCPClient(ssh.get_transport())
+
+            # Upload the file to the remote host
+            scp.put(filename, remote_path=path)
+
+            # Close the SCP instance
+            scp.close()
+
+        except Exception as e:
+            print(f"An error occurred while uploading the file: {e}")
 
 # test region
 if __name__ == '__main__':

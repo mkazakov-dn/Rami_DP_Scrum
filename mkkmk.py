@@ -1,8 +1,7 @@
 import Commit_file_top
-import Class_SSH_Con
 import tkinter as tk
 import sys
-from tkinter import ttk, filedialog
+from tkinter import ttk
 import ipaddress
 import paramiko
 from scp import SCPClient
@@ -108,7 +107,7 @@ class ConfigGenerator(tk.Tk):
 
 if __name__ == "__main__":
     # Example list of interfaces
-    chosen_device = Commit_file_top.BaseConnector('WJ31B77Y00003A2','dnroot')
+    chosen_device = Commit_file_top.BaseConnector('WJ31B77Y00003A2', 'dnroot')
     available_interfaces = chosen_device.get_interfaces()
     app = ConfigGenerator(available_interfaces)
     app.mainloop()
