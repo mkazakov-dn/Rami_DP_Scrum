@@ -2236,12 +2236,12 @@ class BaseConnector:
         interfaces = list(OrderedDict.fromkeys(interfaces))
         return interfaces
 
-    def backup_config(self):
+    def backup_config(self, filename='Automated_Snapshot'):
         if self.connection is None:
             print('Error: Connection failed')
             return
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
-        self.connection.exec_command('save Automated_Snapshot')
+        self.connection.exec_command(f'save {filename}')
 
     def load_override_factory_default(self):
         if self.connection is None:
@@ -2250,9 +2250,7 @@ class BaseConnector:
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
         self.connection.exec_command('load override factory default')
 
-    def load_merge_config(self, filename):
-        if filename is None:
-            filename = 'Automator'
+    def load_merge_config(self, filename='Automator'):
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
         if not self.connection.exec_command(cmd=f'load merge {filename}', timeout=3600):
             print(f'Failed to load config')

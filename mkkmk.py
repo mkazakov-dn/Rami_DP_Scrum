@@ -1,4 +1,4 @@
-import Commit_file_top
+import Class_SSH_Con
 import tkinter as tk
 import sys
 from tkinter import ttk
@@ -100,14 +100,14 @@ class ConfigGenerator(tk.Tk):
         upload_file_scp('Interfaces_automated.txt', 'WJ31B77Y00003A2', 'dnroot', 'dnroot', '/config')
 
         # You'd need to create an instance of the class containing the `commit_backup_config` method (assuming it's `BaseConnector` class).
-        chosen_device = Commit_file_top.BaseConnector(ip='WJ31B77Y00003A2', username='dnroot')
+        chosen_device = Class_SSH_Con.BaseConnector(ip='WJ31B77Y00003A2', username='dnroot')
         chosen_device.load_merge_config('Interfaces_automated.txt')
         sys.exit(1)
 
 
 if __name__ == "__main__":
     # Example list of interfaces
-    chosen_device = Commit_file_top.BaseConnector('WJ31B77Y00003A2', 'dnroot')
+    chosen_device = Class_SSH_Con.BaseConnector('WJ31B77Y00003A2', 'dnroot')
     available_interfaces = chosen_device.get_interfaces()
     app = ConfigGenerator(available_interfaces)
     app.mainloop()

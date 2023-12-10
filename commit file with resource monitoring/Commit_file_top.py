@@ -124,7 +124,7 @@ class Commit_with_htop(Class_SSH_Con.BaseConnector):
 if __name__ == '__main__':
     with open('../top_results.txt', 'w') as f:  # Clear the file for fresh results
         f.write('')
-    Marker = Commit_with_htop('WJ31B77Y00003A2', 'dnroot')
+    Marker = Commit_with_htop('dn40-cl-301a-ncc0', 'dnroot')
     interfaces = Marker.get_interfaces()
     print(interfaces)
     # Config_file = 'Automator'

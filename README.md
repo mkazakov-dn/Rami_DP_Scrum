@@ -2,6 +2,9 @@
 The project is designed to have a connection handler for DriveNets devices to give the team members a way to interact with DriveNets via python.
 In addition the project will share projects done by the team members.
 
+## Prerequisites
+- Python 3.7 or above
+- Dependencies listed in the 'requirements.txt'
 ## Getting started 
 (this guide will assume you have python 3.7 running)
 1. Clone the repository into your working directoy.
