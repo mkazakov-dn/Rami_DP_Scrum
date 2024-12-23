@@ -1,5 +1,7 @@
 import os
+import time
 import logging
+import subprocess
 from ixnetwork_restpy import TestPlatform, SessionAssistant, Files
 
 
@@ -20,6 +22,8 @@ class IxiaConfigUpdater:
         self.api_server_port = api_server_port
         self.session_assistant = None
         self.ixnetwork = None
+        self.port_map = None
+
 
     def connect_to_existing_or_create(self):
         """
@@ -52,22 +56,37 @@ class IxiaConfigUpdater:
                 ClearConfig=False
             )
             self.ixnetwork = self.session_assistant.Ixnetwork
+            self.port_map = self.session_assistant.PortMapAssistant()
             logger.info(f"Connected to session: ID={session.Id}, Name={session.Name or 'Unnamed'}")
         except Exception as e:
             logger.error(f"Failed to connect to IxNetwork session: {e}")
             raise
 
-    def add_chassis(self, chassis_ip):
-        """
-        Add the chassis to the IxNetwork configuration if not already added.
-        :param chassis_ip: The IP address of the chassis to add.
-        """
-        available_chassis = self.ixnetwork.AvailableHardware.Chassis.find()
-        if not available_chassis or not available_chassis.find(Hostname=chassis_ip):
-            logger.info(f"Adding chassis: {chassis_ip}")
-            self.ixnetwork.AvailableHardware.Chassis.add(Hostname=chassis_ip)
-        else:
-            logger.info(f"Chassis {chassis_ip} is already added.")
+
+    def _check_ports_status(self, retries=5, delay=2):
+        """Check if all Vports are Up, with retries."""
+        for attempt in range(retries):
+            self.vports = self.ixnetwork.Vport.find()  # Re-fetch Vports
+            if all(vport.ConnectionState == "connectedLinkUp" for vport in self.vports):
+                logger.debug("All ports are up.")
+                return True
+            logger.debug(f"Attempt {attempt + 1}/{retries}: Ports are not Up yet. Retrying in {delay} seconds...")
+            time.sleep(delay)
+        logger.error("Ports failed to come Up within retries.")
+        return False
+
+    def _configure_ports(self):
+        """Apply L1 configurations to all Vports."""
+        l1_config_params = {
+            "IeeeL1Defaults": False,
+            "FirecodeForceOn": True
+        }
+        logger.debug("Configuring ports...")
+        for vport in self.vports:
+            l1_config = vport.L1Config.find()
+            novusHundredGig = l1_config.NovusHundredGigLan.find()
+            novusHundredGig.update(**l1_config_params)
+        logger.debug("Ports configured successfully.")
 
     def remap_ports(self, new_ports):
         """
@@ -88,13 +107,33 @@ class IxiaConfigUpdater:
 
         # Step 3: Add and map new vports
         logger.info("Adding and mapping new ports...")
-        port_map = self.session_assistant.PortMapAssistant()
         for new_port in new_ports:
-            port_map.Map(**new_port)
-        port_map.Connect(ForceOwnership=True, HostReadyTimeout=20, IgnoreLinkUp=True)
+            self.port_map.Map(**new_port)
+        self.port_map.Connect(ForceOwnership=True, HostReadyTimeout=20, IgnoreLinkUp=True)
+
+        if not self._check_ports_status():
+            logger.warning("Some ports are down. Applying configurations to bring them up...")
+            self._configure_ports()
+            time.sleep(2)
+            if not self._check_ports_status():
+                raise RuntimeError("Failed to bring ports up after configuration.")
+
         logger.info("New ports mapped and connected successfully.")
         # Step 4: Connect the ports
 
+    def load_config(self, local_config_path):
+        """
+        Load a configuration file into the IxNetwork session.
+
+        :param local_config_path: The path to the configuration file to load.
+        """
+        try:
+            logger.info(f"Loading configuration from: {local_config_path}")
+            self.ixnetwork.LoadConfig(Files(local_config_path, local_file=False))
+            logger.info("Configuration loaded successfully.")
+        except Exception as e:
+            logger.error(f"Failed to load configuration: {e}")
+            raise RuntimeError(f"Failed to load configuration: {e}")
 
     def detect_old_ports_by_name(self):
         """
@@ -134,24 +173,52 @@ class IxiaConfigUpdater:
         self.ixnetwork.SaveConfig(Files=output_path)
         logger.info("Configuration saved successfully.")
 
+def transfer_file_to_windows(source_path, target_host, target_path, mkazakov_password):
+    """
+    Transfer the file from Linux source to the Windows IXIA client using SCP.
+
+    :param source_path: Path of the file on mkazakov-dev (e.g., "dn@mkazakov-dev:/home/dn/file.ixncfg").
+    :param target_host: Target Windows IXIA machine hostname or IP (e.g., "win-client257").
+    :param target_path: Directory path on the target machine (e.g., "C:\\configs\\").
+    :param mkazakov_password: Password for the mkazakov-dev user.
+    """
+    logger.info(f"Transferring file from {source_path} to {target_host}:{target_path}...")
+
+    # Construct the target file path
+    remote_target_path = f"dn@{target_host}:{target_path}"
+
+    try:
+        # Use sshpass to provide the password for mkazakov-dev
+        subprocess.check_call([
+            "sshpass", "-p", mkazakov_password,
+            "scp", source_path, remote_target_path
+        ])
+        logger.info(f"File successfully transferred to {remote_target_path}.")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Failed to transfer file: {e}")
+        raise
+
+    return target_path + os.path.basename(source_path)
 
 if __name__ == "__main__":
     source_ixia_file = "dn@mkazakov-dev:/home/dn/mark_kazakov_LU.ixncfg"
     target_windows_client = "win-client257"
     new_ports = [
-        {"IpAddress": "100.64.0.56", "CardId": 2, "PortId": 30, "Name": "Port1"},
-        {"IpAddress": "100.64.0.56", "CardId": 2, "PortId": 29, "Name": "Port2"}
+        {"IpAddress": "ixia01.dev.drivenets.net", "CardId": 2, "PortId": 30, "Name": "Port1"},
+        {"IpAddress": "ixia01.dev.drivenets.net", "CardId": 2, "PortId": 29, "Name": "Port2"}
     ]
 
     # Initialize and connect to IxNetwork
     ixia = IxiaConfigUpdater(api_server_ip=target_windows_client, api_server_port=11009)
 
     ixia.connect_to_existing_or_create()
+    windows_config_path = transfer_file_to_windows(source_ixia_file, target_windows_client, "C:\\configs\\", "drive1234!")
+    ixia.load_config(local_config_path=windows_config_path)
+
+
+    # Load the configuration file
 
     # Remap ports
     ixia.remap_ports(new_ports=new_ports)
 
-    # Save updated configuration
-    updated_config_path = "C:\\configs\\updated_ixia_config_file.ixncfg"
-    ixia.save_config(output_path=updated_config_path)
     logger.info("IXIA configuration updated and saved successfully.")
