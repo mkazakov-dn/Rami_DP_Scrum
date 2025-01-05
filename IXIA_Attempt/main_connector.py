@@ -5,14 +5,16 @@ from tkinter import ttk
 from ixnetwork_restpy import SessionAssistant
 
 
-class IxiaSessionManager:
+class IxiaConfigurator:
+
     def __init__(self, api_server_ip, clear_config=False):
-        """Initialize the IxNetwork session."""
+        """Initialize the IxNetwork session and configurator."""
         self.api_server_ip = api_server_ip
         self.clear_config = clear_config
         self.session_assistant = None
         self.ixnetwork = None
-        self.logger = logging.getLogger("IxiaSessionManager")
+        self.logger = logging.getLogger("IxiaConfigurator")
+        self.vports = []
 
     def connect(self):
         """Establish connection to the IxNetwork API."""
@@ -38,17 +40,10 @@ class IxiaSessionManager:
         except Exception as e:
             self.logger.warning(f"Failed to disconnect gracefully: {e}")
 
-
-class PortManager:
-    def __init__(self, session_manager):
-        self.session_manager = session_manager
-        self.logger = logging.getLogger("PortManager")
-        self.vports = []
-
     def _map_ports(self, ports):
         """Map the physical ports."""
         try:
-            port_map = self.session_manager.session_assistant.PortMapAssistant()
+            port_map = self.session_assistant.PortMapAssistant()
             for port in ports:
                 port_map.Map(**port)
             port_map.Connect(ForceOwnership=True, HostReadyTimeout=20, IgnoreLinkUp=True)
@@ -60,7 +55,7 @@ class PortManager:
     def _check_ports_status(self, retries=5, delay=2):
         """Check if all Vports are Up, with retries."""
         for attempt in range(retries):
-            self.vports = self.session_manager.ixnetwork.Vport.find()
+            self.vports = self.ixnetwork.Vport.find()
             if all(vport.ConnectionState == "connectedLinkUp" for vport in self.vports):
                 self.logger.debug("All ports are up.")
                 return True
@@ -92,55 +87,120 @@ class PortManager:
             if not self._check_ports_status():
                 raise RuntimeError("Failed to bring ports up after configuration.")
 
+    def configure_ipv4(self, ethernet, ip_address):
+        """Configure IPv4 and gateway settings."""
+        ipv4 = ethernet.Ipv4.add(Name=f"IPv4_{ip_address}")
+        ipv4.Address.Single(ip_address)
+        octets = ip_address.split('.')
+        gateway_ip = f"{octets[0]}.{octets[1]}.{octets[2]}.2"
+        ipv4.GatewayIp.Single(gateway_ip)
+        ipv4.Prefix.Single(24)
+        return ipv4
 
-class TopologyManager:
-    def __init__(self, session_manager):
-        self.session_manager = session_manager
-        self.logger = logging.getLogger("TopologyManager")
+    def configure_BGP_VRF(self,device_group, bgp_peer, local_as):
+        # The value for the BGP VRF RT Import/Export is
+        self.logger.info("Configuring BGP VRF")
+        vrf = bgp_peer.BgpVrf.add(Name="BGP_VRF_")
+        rt = vrf.BgpExportRouteTargetList.find()
+        rt.TargetAsNumber.Single(local_as)
 
-    def create_topology_with_vlan_and_ipv4(self, vports, vlan_ids, directions, ip_addresses):
-        """Create topologies, assign unique VLANs to each Vport, and configure IPv4."""
-        for port, vlan_id, direction, ip_address in zip(vports, vlan_ids, directions, ip_addresses):
-            topology_name = f"Topology_{direction}"
-            device_group_name = f"DeviceGroup_{direction}"
-
-            # Add a topology associated with each Vport
-            topology = self.session_manager.ixnetwork.Topology.add(Name=topology_name, Vports=[port])
-            device_group = topology.DeviceGroup.add(Name=device_group_name, Multiplier=1)
+        VPN_GROUP = device_group.NetworkGroup.add(Name="VPN", Multiplier='1')
+        IPv4_VPN = VPN_GROUP.Ipv4PrefixPools.add(NumberOfAddresses='1')
+        IPv4_VPN.PrefixLength.Single(24)
 
 
 
-            # Configure Ethernet layer
+
+
+
+    def configure_bgp_with_loopback(self, device_group, loopback, local_as, peer_type):
+        """Configure BGP with Loopback."""
+        self.logger.info("Configuring BGP with loopback...")
+
+        # Add an IPv4 Loopback interface
+        ipv4_loopback = device_group.Ipv4Loopback.add(Name='PE 1 Loopback')
+        ipv4_loopback.Address.Single(loopback)
+
+        # Add the BGP Peer
+        bgp_peer = ipv4_loopback.BgpIpv4Peer.add(Name='BGP_PE1')
+
+        # Configure BGP Peer settings
+        bgp_peer.DutIp.Single(loopback)  # DUT IP
+        bgp_peer.LocalAs2Bytes.Single(local_as)  # Local AS
+        bgp_peer.Type.Single(peer_type)  # Internal or external BGP
+
+        # Add BFD to IPv4 Loopback and enable BFD for the BGP Peer
+        ipv4_loopback.Bfdv4Interface.add(Name='Bravo_Echo', NoOfSessions=1)  # Configure BFD
+        bgp_peer.EnableBfdRegistration.Single(True)  # Enable BFD registration for the BGP Peer
+
+        self.logger.info(f"BGP with loopback configured: DUT IP {loopback}, Local AS {local_as}, Type {peer_type}.")
+
+        return bgp_peer
+
+    def configure_ospf_and_ldp(self, device_group, ipv4, loopback):
+        """Configure OSPF and LDP."""
+        ospf = ipv4.Ospfv2.add()
+        ipv4.Bfdv4Interface.add(Name='BFD_1', NoOfSessions=1)
+        device_group_router_data = device_group.RouterData.find()
+        device_group_router_data.RouterId.Single(loopback)
+        ospf.AreaId.Single(0)
+        ospf.NetworkType.Single('pointtopoint')
+        ospf.EnableBfdRegistration.Single(True)
+
+        self.logger.info("OSPF configured.")
+        self.logger.info("Attempting to push LDP.")
+        ipv4.LdpBasicRouter.add(Name="LDP_P1")
+
+    def Loopback_creator(self, device_group, loopback):
+        """Create network group and loopback configuration."""
+        network_group = device_group.NetworkGroup.add(Name='Loopback', Multiplier='1')
+        ipv4_prefix_pool = network_group.Ipv4PrefixPools.add(NumberOfAddresses='1')
+        ipv4_prefix_pool.NetworkAddress.Increment(start_value=loopback, step_value='0.0.0.1')
+        ipv4_prefix_pool.PrefixLength.Single(32)
+
+
+    def configure_network_group(self, device_group, loopback):
+        """Configure network group with IPv4 prefix pool."""
+        self.logger.info("Configuring network group...")
+
+        # Add a network group to the device group
+        network_group = device_group.NetworkGroup.add(Name='Loopback', Multiplier='1')
+
+        # Configure the IPv4 prefix pool within the network group
+        ipv4_prefix_pool = network_group.Ipv4PrefixPools.add(NumberOfAddresses='1')
+        ipv4_prefix_pool.NetworkAddress.Increment(start_value=loopback, step_value='0.0.0.1')
+        ipv4_prefix_pool.PrefixLength.Single(32)
+
+        self.logger.info(f"Network group configured with loopback {loopback}.")
+
+    def configure_topology(self, vports, vlan_ids, directions, ip_addresses, loopbacks):
+        """Create topology and configure VLANs, IPv4, OSPF, and BGP."""
+        for port, vlan_id, direction, ip_address, loopback in zip(vports, vlan_ids, directions, ip_addresses,
+                                                                  loopbacks):
+            topology = self.ixnetwork.Topology.add(Vports=[port])
+            device_group = topology.DeviceGroup.add(Multiplier=1)
+
+            # Configure Ethernet
             ethernet = device_group.Ethernet.add(Name=f"Ethernet_{port.Name}")
             ethernet.UseVlans = True
-
-            if not ethernet.Vlan.find():
-                vlan = ethernet.Vlan.add()
-            else:
-                vlan = ethernet.Vlan.find()
+            vlan = ethernet.Vlan.add() if not ethernet.Vlan.find() else ethernet.Vlan.find()
             vlan.VlanId.Single(vlan_id)
 
             # Configure IPv4
-            ipv4 = ethernet.Ipv4.add(Name=f"IPv4_{ip_address}")
-            ipv4.Address.Single(ip_address)
-            octets = ip_address.split('.')
-            gateway_ip = f"{octets[0]}.{octets[1]}.{octets[2]}.2"
-            ipv4.GatewayIp.Single(gateway_ip)
-            ipv4.Prefix.Single(24)
+            ipv4 = self.configure_ipv4(ethernet, ip_address)
 
-            # Add OSPF
-            self.configure_ospf(device_group ,ipv4, ip_address)
+            # Configure OSPF and LDP
+            self.configure_ospf_and_ldp(device_group, ipv4, loopback)
 
-            self.logger.info(
-                f"Device group '{device_group.Name}' with VLAN ID {vlan_id} and IPv4 {ip_address} added to topology '{topology.Name}'.")
+            # Configure Network Group
+            self.configure_network_group(device_group, loopback)
 
-    def configure_ospf(self, device, ipv4, ip_address, area_id="0",):
-        """Add OSPF to a given device group."""
-        ospf = ipv4.Ospfv2.add(Name=f'OSPF {ipv4.Name}')
-        device.RouterData.RouterId.Single(ip_address)
-        ospf.AreaId.Single(area_id)
-        ospf.NetworkType.Single("pointtopoint")
-        self.logger.info(f"OSPF configured for device group '{ipv4.Name}' in Area {area_id}.")
+            # Configure BGP with Loopback
+            bgp_peer = self.configure_bgp_with_loopback(device_group, loopback, local_as=6500, peer_type="internal")
+
+            self.configure_BGP_VRF(device_group, bgp_peer,local_as=6500)
+
+
 
 
 class IxiaConfiguratorApp:
@@ -177,22 +237,18 @@ class IxiaConfiguratorApp:
             {"IpAddress": chassis_ip, "CardId": int(port2[0]), "PortId": int(port2[1]), "Name": "Port2"}
         ]
 
-        session_manager = IxiaSessionManager(api_server_ip=api_server_ip, clear_config=True)
+        configurator = IxiaConfigurator(api_server_ip=api_server_ip, clear_config=True)
         try:
-            session_manager.connect()
-
-            port_manager = PortManager(session_manager)
-            port_manager.prepare_ports(ports=ports_to_map)
-
-            topology_manager = TopologyManager(session_manager)
-            vports = session_manager.ixnetwork.Vport.find()
+            configurator.connect()
+            configurator.prepare_ports(ports=ports_to_map)
+            vports = configurator.ixnetwork.Vport.find()
             vlan_ids = [100, 200]
             directions = ['Inbound', 'Outbound']
             ip_addresses = ['192.168.1.1', '192.168.2.1']
-            topology_manager.create_topology_with_vlan_and_ipv4(vports, vlan_ids, directions, ip_addresses)
-
+            loopbacks = ['1.1.1.1', '2.2.2.2']
+            configurator.configure_topology(vports, vlan_ids, directions, ip_addresses, loopbacks)
         finally:
-            session_manager.disconnect()
+            configurator.disconnect()
 
 
 if __name__ == "__main__":
