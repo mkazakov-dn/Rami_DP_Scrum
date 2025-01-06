@@ -534,7 +534,7 @@ class SSH_Conn:
     # endregion
 
     # region cmd_exec func section
-    def exec_command(self, cmd, exec_mode: SSH_ENUMS.EXEC_MODE = None, netns: str = None,
+    def exec_command(self, cmd, exec_mode: SSH_ENUMS.EXEC_MODE = None, maintain_hirearchy=False , netns: str = None,
                      timeout: int = 10, one_screen_only: bool = False,
                      output_object_type: type = None, location_target: dict = None,
                      interactive: SSH_ENUMS.INTERACTIVE_RESPONSE = None, interactive_pass: str = None):
@@ -2225,6 +2225,14 @@ class BaseConnector:
             print(f'Error: {e}')
             self.connection: SSH_Conn = None
 
+    def worker(self):
+        self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_SHOW)
+        output = self.connection.exec_command(cmd=f'sh conf interfaces | flatten |inc qos', timeout=100)
+        lines = [line for line in output.strip().split('\n') if line]
+        for line in lines:
+            print(f'no {line}')
+        self.connection.commit_cfg()
+
     def get_interfaces(self, *args):
         if self.connection is None:
             print('Error: Connection failed')
@@ -2243,12 +2251,25 @@ class BaseConnector:
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
         self.connection.exec_command(f'save {filename}')
 
+    def load_override_filename(self,filename):
+        if self.connection is None:
+            print(f'Error: Connection failed')
+            return
+        self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
+        if not self.connection.exec_command(cmd=f'load override {filename}', timeout=3600):
+            print(f'Failed to load config')
+        else:
+            print(f'Load overriding original config prior to changes.')
+            if not self.connection.commit_cfg():
+                print(f'Commit FAILED please reffer to test_con_log')
+                sys.exit(1)
+
     def load_override_factory_default(self):
         if self.connection is None:
             print('Error: Connection failed')
             return
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)
-        self.connection.exec_command('load override factory default')
+        self.connection.exec_command('load override factory-default', timeout=120)
 
     def load_merge_config(self, filename='Automator'):
         self.connection.change_mode(requested_cli=self.connection.SSH_ENUMS.CLI_MODE.DNOS_CFG)

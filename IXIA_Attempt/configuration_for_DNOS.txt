@@ -1,0 +1,49 @@
+interfaces ge100-0/0/3.100 admin-state enabled
+interfaces ge100-0/0/3.100 ipv4-address 192.168.1.2/24
+interfaces ge100-0/0/3.100 mpls enabled
+interfaces ge100-0/0/3.100 vlan-id 100
+interfaces ge100-0/0/3.999 admin-state enabled
+interfaces ge100-0/0/3.999 ipv4-address 7.7.7.7/24
+interfaces ge100-0/0/3.999 vlan-id 999
+
+
+interfaces ge100-0/0/30.200 admin-state enabled
+interfaces ge100-0/0/30.200 ipv4-address 192.168.2.2/24
+interfaces ge100-0/0/30.200 vlan-id 200
+
+interfaces lo0 admin-state enabled
+interfaces lo0 ipv4-address 100.100.100.100/32
+
+protocols ospf instance AAA area 0 interface ge100-0/0/3.100 network-type point-to-point
+protocols ospf instance AAA area 0 interface ge100-0/0/3.100 bfd admin-state enabled
+protocols ospf instance AAA area 0 interface ge100-0/0/30.200 network-type point-to-point
+protocols ospf instance AAA area 0 interface ge100-0/0/30.200 bfd admin-state enabled
+protocols ospf instance AAA area 0 interface lo0 ^
+
+protocols bgp 6500 neighbor 1.1.1.1 remote-as 6500
+protocols bgp 6500 neighbor 1.1.1.1 admin-state enabled
+protocols bgp 6500 neighbor 1.1.1.1 update-source lo0
+protocols bgp 6500 neighbor 1.1.1.1 bfd admin-state enabled
+protocols bgp 6500 neighbor 1.1.1.1 address-family ipv4-unicast soft-reconfiguration inbound
+protocols bgp 6500 neighbor 1.1.1.1 address-family ipv4-vpn soft-reconfiguration inbound
+protocols bgp 6500 neighbor 2.2.2.2 remote-as 6500
+protocols bgp 6500 neighbor 2.2.2.2 admin-state enabled
+protocols bgp 6500 neighbor 2.2.2.2 update-source lo0
+protocols bgp 6500 neighbor 2.2.2.2 bfd admin-state enabled
+protocols bgp 6500 neighbor 2.2.2.2 address-family ipv4-unicast soft-reconfiguration inbound
+protocols bgp 6500 neighbor 2.2.2.2 address-family ipv4-vpn soft-reconfiguration inbound
+
+
+protocols ldp address-family ipv4-unicast interface ge100-0/0/3.100 admin-state enabled
+protocols ldp address-family ipv4-unicast interface ge100-0/0/30.200 admin-state enabled
+
+
+network-services vrf instance VRF_MKaz interface ge100-0/0/3.999
+network-services vrf instance VRF_MKaz protocols bgp 6500 route-distinguisher 999:1
+network-services vrf instance VRF_MKaz protocols bgp 6500 address-family ipv4-unicast export-vpn route-target 6500:1
+network-services vrf instance VRF_MKaz protocols bgp 6500 address-family ipv4-unicast import-vpn route-target 6500:1
+
+
+network-services vrf instance VRF_MKaz_2 protocols bgp 6500 route-distinguisher 999:2
+network-services vrf instance VRF_MKaz_2 protocols bgp 6500 address-family ipv4-unicast export-vpn route-target 6500:1
+network-services vrf instance VRF_MKaz_2 protocols bgp 6500 address-family ipv4-unicast import-vpn route-target 6500:1

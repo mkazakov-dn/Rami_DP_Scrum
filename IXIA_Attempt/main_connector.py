@@ -1,8 +1,10 @@
 import logging
 import time
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 from ixnetwork_restpy import SessionAssistant
+import re
+from Rami_DP_Scrum.Class_SSH_Con import BaseConnector
 
 
 class IxiaConfigurator:
@@ -125,7 +127,7 @@ class IxiaConfigurator:
         bgp_peer = ipv4_loopback.BgpIpv4Peer.add(Name='BGP_PE1')
 
         # Configure BGP Peer settings
-        bgp_peer.DutIp.Single(loopback)  # DUT IP
+        bgp_peer.DutIp.Single('100.100.100.100')  # DUT IP
         bgp_peer.LocalAs2Bytes.Single(local_as)  # Local AS
         bgp_peer.Type.Single(peer_type)  # Internal or external BGP
 
@@ -173,10 +175,32 @@ class IxiaConfigurator:
 
         self.logger.info(f"Network group configured with loopback {loopback}.")
 
+    def configure_traffic(self):
+        """Configure traffic from MKaz_Helper IPv4 to VPN Group in Topology 2."""
+        self.logger.info("Configuring traffic from MKaz_Helper to VPN Group in Topology 2...")
+
+
+
+        # Find the source: MKaz_Helper's IPv4
+        mkaz_helper = self.ixnetwork.Topology.find(Name="Topology 1").DeviceGroup.find(Name="MKaz_Helper")
+        source_ethernet = mkaz_helper.Ethernet.find()
+        source_ipv4 = source_ethernet.Ipv4.find()
+
+        # Find the destination: VPN Group under Topology 2
+        destination_vrf = self.ixnetwork.Topology.find(Name="Topology 2").DeviceGroup.find(Name="Device Group 2")
+        vpn_group = destination_vrf.NetworkGroup.find(Name="VPN 1")
+
+        # Add Traffic Item
+        traffic_item = self.ixnetwork.Traffic.TrafficItem.add(Name='VRF', BiDirectional=False, TrafficType="ipv4")
+        traffic_item.EndpointSet.add(Sources=source_ipv4, Destinations=vpn_group)
+
+        # Generate and apply traffic
+        traffic_item.Generate()
+
     def configure_topology(self, vports, vlan_ids, directions, ip_addresses, loopbacks):
         """Create topology and configure VLANs, IPv4, OSPF, and BGP."""
-        for port, vlan_id, direction, ip_address, loopback in zip(vports, vlan_ids, directions, ip_addresses,
-                                                                  loopbacks):
+        for index, (port, vlan_id, direction, ip_address, loopback) in enumerate(zip(vports, vlan_ids, directions, ip_addresses,
+                                                                  loopbacks)):
             topology = self.ixnetwork.Topology.add(Vports=[port])
             device_group = topology.DeviceGroup.add(Multiplier=1)
 
@@ -199,6 +223,27 @@ class IxiaConfigurator:
             bgp_peer = self.configure_bgp_with_loopback(device_group, loopback, local_as=6500, peer_type="internal")
 
             self.configure_BGP_VRF(device_group, bgp_peer,local_as=6500)
+
+            # Add additional device group only under the first topology
+            if index == 0:
+                extra_device = topology.DeviceGroup.add(Multiplier=1, Name="MKaz_Helper")
+                extra_device = topology.DeviceGroup.find(Name="MKaz_Helper")
+
+                # Configure Ethernet
+                ethernet_extra = extra_device.Ethernet.add(Name="Vlan 999")
+                ethernet_extra = extra_device.Ethernet.find()
+                ethernet_extra.UseVlans = True
+
+                # Configure VLAN
+                vlan = ethernet_extra.Vlan.add() if not ethernet_extra.Vlan.find() else ethernet_extra.Vlan.find()
+                vlan.VlanId.Single(999)
+
+                # Configure IPv4
+                additional_ip = ethernet_extra.Ipv4.add(Name="IPv4_7.7.7.1")
+                additional_ip = ethernet_extra.Ipv4.find()
+                additional_ip.Address.Single("7.7.7.1")
+                additional_ip.GatewayIp.Single("7.7.7.7")
+                additional_ip.Prefix.Single(24)
 
 
 
@@ -224,7 +269,44 @@ class IxiaConfiguratorApp:
         self.port2 = tk.StringVar()
         ttk.Entry(root, textvariable=self.port2).grid(row=3, column=1, padx=5, pady=5)
 
-        ttk.Button(root, text="Configure Ports", command=self.configure_ports).grid(row=4, columnspan=2, pady=10)
+        ttk.Label(root, text="Device ID").grid(row=4, column=0, padx=5, pady=5)
+        self.device_id = tk.StringVar()
+        ttk.Entry(root, textvariable=self.device_id).grid(row=4, column=1, padx=5, pady=5)
+
+        ttk.Label(root, text="Inbound Interface").grid(row=5, column=0, padx=5, pady=5)
+        self.inbound_interface = tk.StringVar()
+        ttk.Entry(root, textvariable=self.inbound_interface).grid(row=5, column=1, padx=5, pady=5)
+
+        ttk.Label(root, text="Outbound Interface").grid(row=6, column=0, padx=5, pady=5)
+        self.outbound_interface = tk.StringVar()
+        ttk.Entry(root, textvariable=self.outbound_interface).grid(row=6, column=1, padx=5, pady=5)
+
+        ttk.Button(root, text="Configure Ports", command=self.configure_ports).grid(row=9, columnspan=2, pady=10)
+        ttk.Button(root, text="Upload Config", command=self.upload_config_to_device).grid(row=10, columnspan=2, pady=10)
+
+
+    def modify_config(self):
+        inbound = self.inbound_interface.get().strip()
+        outbound = self.outbound_interface.get().strip()
+
+        if not inbound or not outbound:
+            messagebox.showerror("Input Error", "Both interfaces must be provided.")
+            return
+
+        try:
+            with open("configuration_for_DNOS.txt", "r") as file:
+                config_data = file.read()
+
+            config_data = re.sub(r"ge100-0/0/3", inbound, config_data)
+            config_data = re.sub(r"ge100-0/0/30", outbound, config_data)
+
+            with open("modified_configuration.txt", "w") as file:
+                file.write(config_data)
+
+            messagebox.showinfo("Success", "Configuration modified and saved as 'modified_configuration.txt'")
+        except Exception as e:
+            messagebox.showerror("Error", f"An error occurred: {e}")
+
 
     def configure_ports(self):
         api_server_ip = self.api_server_ip.get()
@@ -247,12 +329,41 @@ class IxiaConfiguratorApp:
             ip_addresses = ['192.168.1.1', '192.168.2.1']
             loopbacks = ['1.1.1.1', '2.2.2.2']
             configurator.configure_topology(vports, vlan_ids, directions, ip_addresses, loopbacks)
+            configurator.configure_traffic()
         finally:
             configurator.disconnect()
 
 
+    def commit_check(self, connector):
+        connector.connection.change_mode(requested_cli='DNOS_CFG')
+        if not connector.connection.exec_command(cmd=f'load merge modified_configuration.txt', timeout=3600):
+            logging.log(f'Failed to load config')
+        else: # proceeding with the commit check
+            final_boolean = connector.connection.exec_command(cmd='commit check')
+        return  final_boolean #True if the commit check succeeded, False if the commit check failed.
+
+
+
+
+
+    def upload_config_to_device(self):
+        device_id = self.device_id.get().strip()
+        self.modify_config()
+        if not device_id:
+            messagebox.showerror("Input Error", "Device ID must be provided.")
+            return
+
+        try:
+            connector = BaseConnector(ip=device_id, username='dnroot')
+            connector.backup_config()
+            connector.SCP_To_Device("modified_configuration.txt")
+            messagebox.showinfo("Success", "Configuration uploaded successfully")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to upload config: {e}")
+
+
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(message)s")
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
     root = tk.Tk()
     app = IxiaConfiguratorApp(root)
