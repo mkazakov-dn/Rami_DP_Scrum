@@ -4,6 +4,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 from ixnetwork_restpy import SessionAssistant
 import re
+from pathlib import Path
+from tkinter import Tk, Canvas, Entry, Text, Button, PhotoImage
 from Rami_DP_Scrum.Class_SSH_Con import BaseConnector
 
 
@@ -109,11 +111,6 @@ class IxiaConfigurator:
         VPN_GROUP = device_group.NetworkGroup.add(Name="VPN", Multiplier='1')
         IPv4_VPN = VPN_GROUP.Ipv4PrefixPools.add(NumberOfAddresses='1')
         IPv4_VPN.PrefixLength.Single(24)
-
-
-
-
-
 
     def configure_bgp_with_loopback(self, device_group, loopback, local_as, peer_type):
         """Configure BGP with Loopback."""
@@ -245,47 +242,102 @@ class IxiaConfigurator:
                 additional_ip.GatewayIp.Single("7.7.7.7")
                 additional_ip.Prefix.Single(24)
 
-
-
-
 class IxiaConfiguratorApp:
+    def relative_to_assets(self,path: str) -> Path:
+        return self.ASSETS_PATH / Path(path)
     def __init__(self, root):
         self.root = root
         self.root.title("Ixia Port Configurator")
+        self.root.geometry("882x642")
+        self.root.configure(bg="#FFFFFF")
 
-        ttk.Label(root, text="API Server IP").grid(row=0, column=0, padx=5, pady=5)
-        self.api_server_ip = tk.StringVar()
-        ttk.Entry(root, textvariable=self.api_server_ip).grid(row=0, column=1, padx=5, pady=5)
+        # Asset paths
+        self.OUTPUT_PATH = Path(__file__).parent
+        self.ASSETS_PATH = self.OUTPUT_PATH / Path(r"/Users/markkazakov/PycharmProjects/qa_project/Rami_DP_Scrum/IXIA_Attempt/build/assets/frame0")
 
-        ttk.Label(root, text="Chassis IP").grid(row=1, column=0, padx=5, pady=5)
-        self.chassis_ip = tk.StringVar()
-        ttk.Entry(root, textvariable=self.chassis_ip).grid(row=1, column=1, padx=5, pady=5)
+        # Create canvas for GUI layout
+        self.canvas = Canvas(
+            self.root,
+            bg="#FFFFFF",
+            height=642,
+            width=882,
+            bd=0,
+            highlightthickness=0,
+            relief="ridge"
+        )
+        self.canvas.place(x=0, y=0)
 
-        ttk.Label(root, text="Port 1 (CardID:PortID)").grid(row=2, column=0, padx=5, pady=5)
-        self.port1 = tk.StringVar()
-        ttk.Entry(root, textvariable=self.port1).grid(row=2, column=1, padx=5, pady=5)
+        # Load images
+        self.image_1 = PhotoImage(file=self.relative_to_assets("image_1.png"))
+        self.canvas.create_image(186.0, 52.0, image=self.image_1)
 
-        ttk.Label(root, text="Port 2 (CardID:PortID)").grid(row=3, column=0, padx=5, pady=5)
-        self.port2 = tk.StringVar()
-        ttk.Entry(root, textvariable=self.port2).grid(row=3, column=1, padx=5, pady=5)
+        self.image_2 = PhotoImage(file=self.relative_to_assets("image_2.png"))
+        self.canvas.create_image(634.0, 321.0, image=self.image_2)
 
-        ttk.Label(root, text="Device ID").grid(row=4, column=0, padx=5, pady=5)
-        self.device_id = tk.StringVar()
-        ttk.Entry(root, textvariable=self.device_id).grid(row=4, column=1, padx=5, pady=5)
+        # Create text labels
+        self.create_label("API Server:", 10, 117)
+        self.create_label("Chassis IP:", 10, 174)
+        self.create_label("Port-1:", 11, 231)
+        self.create_label("Port-2:", 10, 288)
+        self.create_label("Device ID:", 10, 345)
+        self.create_label("IN-Interface:", 10, 402)
+        self.create_label("OUT-Interface:", 10, 459)
 
-        ttk.Label(root, text="Inbound Interface").grid(row=5, column=0, padx=5, pady=5)
-        self.inbound_interface = tk.StringVar()
-        ttk.Entry(root, textvariable=self.inbound_interface).grid(row=5, column=1, padx=5, pady=5)
+        # Create entry fields
+        self.outbound_interface = self.create_entry(175.5, 459.0, "entry_1.png")
+        self.inbound_interface = self.create_entry(175.5, 402.0, "entry_2.png")
+        self.device_id = self.create_entry(175.5, 345.0, "entry_3.png")
+        self.port2 = self.create_entry(175.5, 288.0, "entry_4.png")
+        self.port1 = self.create_entry(175.5, 231.0, "entry_5.png")
+        self.chassis_ip = self.create_entry(175.5, 174.0, "entry_6.png")
+        self.api_server_ip = self.create_entry(175.5, 117.0, "entry_7.png")
 
-        ttk.Label(root, text="Outbound Interface").grid(row=6, column=0, padx=5, pady=5)
-        self.outbound_interface = tk.StringVar()
-        ttk.Entry(root, textvariable=self.outbound_interface).grid(row=6, column=1, padx=5, pady=5)
+        # Create buttons
+        self.button_image_1 = PhotoImage(file=self.relative_to_assets("button_1.png"))
+        self.button_1 = Button(
+            image=self.button_image_1,
+            borderwidth=0,
+            highlightthickness=0,
+            command=self.configure_ports,
+            relief="flat"
+        )
+        self.button_1.place(x=204.0, y=542.0, width=152.0, height=59.0)
 
-        ttk.Button(root, text="Configure Ports", command=self.configure_ports).grid(row=9, columnspan=2, pady=10)
-        ttk.Button(root, text="Upload Config", command=self.upload_config_to_device).grid(row=10, columnspan=2, pady=10)
+        self.button_image_2 = PhotoImage(file=self.relative_to_assets("button_2.png"))
+        self.button_2 = Button(
+            image=self.button_image_2,
+            borderwidth=0,
+            highlightthickness=0,
+            command=self.upload_config_to_device, #self.upload_config_to_device,
+            relief="flat"
+        )
+        self.button_2.place(x=10.0, y=542.0, width=155.0, height=59.0)
 
+        self.root.resizable(False, False)
 
-    def modify_config(self):
+    def create_label(self, text, x, y):
+        """Helper method to create labels."""
+        self.canvas.create_text(
+            x, y,
+            anchor="nw",
+            text=text,
+            fill="#000000",
+            font=("Inter Bold", 20 * -1)
+        )
+
+    def create_entry(self, x, y, image_file):
+        """Helper method to create entry fields with images."""
+        entry_image = PhotoImage(file=self.relative_to_assets(image_file))
+        self.canvas.create_image(254.0, y + 13.5, image=entry_image)
+        entry = Entry(
+            bd=0,
+            bg="#BABCBF",
+            fg="#000716",
+            highlightthickness=0
+        )
+        entry.place(x=x, y=y, width=157.0, height=25.0)
+        return entry
+    def _modify_config(self):
         inbound = self.inbound_interface.get().strip()
         outbound = self.outbound_interface.get().strip()
 
@@ -306,7 +358,6 @@ class IxiaConfiguratorApp:
             messagebox.showinfo("Success", "Configuration modified and saved as 'modified_configuration.txt'")
         except Exception as e:
             messagebox.showerror("Error", f"An error occurred: {e}")
-
 
     def configure_ports(self):
         api_server_ip = self.api_server_ip.get()
@@ -333,22 +384,9 @@ class IxiaConfiguratorApp:
         finally:
             configurator.disconnect()
 
-
-    def commit_check(self, connector):
-        connector.connection.change_mode(requested_cli='DNOS_CFG')
-        if not connector.connection.exec_command(cmd=f'load merge modified_configuration.txt', timeout=3600):
-            logging.log(f'Failed to load config')
-        else: # proceeding with the commit check
-            final_boolean = connector.connection.exec_command(cmd='commit check')
-        return  final_boolean #True if the commit check succeeded, False if the commit check failed.
-
-
-
-
-
     def upload_config_to_device(self):
         device_id = self.device_id.get().strip()
-        self.modify_config()
+        self._modify_config()
         if not device_id:
             messagebox.showerror("Input Error", "Device ID must be provided.")
             return
