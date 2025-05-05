@@ -2,7 +2,7 @@ import datetime
 import sys
 import time
 import threading
-from Rami_DP_Scrum import Class_SSH_Con
+import Class_SSH_Con
 import re
 
 
@@ -122,11 +122,11 @@ class Commit_with_htop(Class_SSH_Con.BaseConnector):
 
 
 if __name__ == '__main__':
-    with open('../top_results.txt', 'w') as f:  # Clear the file for fresh results
-        f.write('')
-    Marker = Commit_with_htop('dn40-cl-301a-ncc0', 'dnroot')
-    interfaces = Marker.get_interfaces()
-    print(interfaces)
+    #with open('../top_results.txt', 'w') as f:  # Clear the file for fresh results
+    #    f.write('')
+    #Marker = Commit_with_htop('dn40-cl-301a-ncc0', 'dnroot')
+    #interfaces = Marker.get_interfaces()
+    print('hello')
     # Config_file = 'Automator'
     # Marker.load_and_commit_config(Config_file)
     # HTOP_ACess_host()
